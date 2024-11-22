@@ -24,6 +24,7 @@ export default defineConfig({
     cssMinify: true,
     cssCodeSplit: true,
     chunkSizeWarningLimit: 1000,
+    assetsInlineLimit: 4096,
   },
   optimizeDeps: {
     exclude: ['lucide-react'],

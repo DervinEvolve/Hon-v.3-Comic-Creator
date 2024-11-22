@@ -72,77 +72,51 @@ export class MediaStorage {
 
   async fetchAndStore(url: string): Promise<string> {
     try {
-      // Check for existing fetch promise
       const existingPromise = this.fetchPromises.get(url);
       if (existingPromise) return existingPromise;
 
-      // For blob URLs, store directly
+      // For blob URLs, try to get from cache first
       if (url.startsWith('blob:')) {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        return this.store(url, blob);
-      }
+        const cached = await this.load(url);
+        if (cached) return cached;
 
-      // Create new fetch promise
-      const fetchPromise = (async () => {
         try {
-          const response = await fetch(url, {
-            mode: 'cors',
-            credentials: 'omit',
-            headers: {
-              'Accept': 'image/*, video/*, application/octet-stream',
-            },
-          });
-
-          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-          const blob = await response.blob();
-          const objectUrl = await this.store(url, blob);
-          this.fetchPromises.delete(url);
-          return objectUrl;
+          // Try to get the blob directly from the URL
+          const blob = await fetch(url).then(r => r.blob());
+          return this.store(url, blob);
         } catch (error) {
-          this.fetchPromises.delete(url);
+          console.warn('Failed to fetch blob URL directly:', error);
+          // If the blob URL is invalid, try to recover from IndexedDB
+          const storedData = await get(url);
+          if (storedData?.blob) {
+            return this.store(url, storedData.blob);
+          }
           throw error;
         }
+      }
+
+      // Rest of the existing fetchAndStore logic...
+      const fetchPromise = (async () => {
+        const response = await fetch(url, {
+          mode: 'cors',
+          credentials: 'omit',
+          headers: {
+            'Accept': 'image/*, video/*, application/octet-stream',
+          },
+        });
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const blob = await response.blob();
+        const objectUrl = await this.store(url, blob);
+        this.fetchPromises.delete(url);
+        return objectUrl;
       })();
 
       this.fetchPromises.set(url, fetchPromise);
       return fetchPromise;
-
     } catch (error) {
-      console.error('Error fetching media:', error);
-      // Try alternative fetch method for images
-      if (url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-        try {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-            img.src = url;
-          });
-
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0);
-          
-          return new Promise((resolve, reject) => {
-            canvas.toBlob(async (blob) => {
-              if (blob) {
-                const objectUrl = await this.store(url, blob);
-                resolve(objectUrl);
-              } else {
-                reject(new Error('Failed to convert image to blob'));
-              }
-            }, 'image/png');
-          });
-        } catch (imgError) {
-          console.error('Error with alternative image loading:', imgError);
-          throw error; // Throw original error if alternative method fails
-        }
-      }
+      console.error('Error in fetchAndStore:', error);
       throw error;
     }
   }

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 import { Comic, Panel } from '../types';
-import { mediaCache } from '../utils/mediaCache';
+import { mediaService } from '../utils/mediaService';
 
 interface ComicStore {
   publishedComics: Comic[];
@@ -10,6 +10,7 @@ interface ComicStore {
   currentComic: Comic | null;
   currentPageIndex: number;
   isCreatorMode: boolean;
+  mediaLoadingStates: Record<string, boolean>;
   setCurrentComic: (comic: Comic | null) => void;
   updateComicTitle: (title: string) => void;
   updateComicCover: (cover: { url: string; type: 'image' | 'video' | 'gif' }) => void;
@@ -20,22 +21,21 @@ interface ComicStore {
   addPage: () => void;
   removePage: (pageIndex: number) => void;
   setCurrentPageIndex: (index: number) => void;
-  publishComic: () => Promise<void>;
+  publishComic: (comic: Comic) => Promise<Comic>;
   unpublishComic: (comicId: string) => void;
   toggleCreatorMode: () => void;
   editComic: (comic: Comic) => void;
-  saveDraft: () => Promise<void>;
+  saveDraft: (comic: Comic) => Promise<Comic>;
   deleteDraft: (comicId: string) => void;
   loadDraft: (comicId: string) => void;
+  setMediaLoaded: (panelId: string, loaded: boolean) => void;
 }
 
 const persistMedia = async (url: string): Promise<string> => {
   if (!url || url.startsWith('data:')) return url;
   
   try {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
+    return await mediaService.load(url);
   } catch (error) {
     console.error('Failed to persist media:', error);
     return url;
@@ -43,26 +43,41 @@ const persistMedia = async (url: string): Promise<string> => {
 };
 
 const persistComicMedia = async (comic: Comic): Promise<Comic> => {
-  const persistedComic = { ...comic };
+  const persistedComic = { 
+    ...comic,
+    id: comic.id || nanoid(),
+    lastModified: new Date()
+  };
 
-  // Persist cover image
-  if (comic.coverImage) {
-    persistedComic.coverImage = await persistMedia(comic.coverImage);
+  try {
+    if (comic.coverImage) {
+      persistedComic.coverImage = await persistMedia(comic.coverImage);
+    }
+
+    const batchSize = 2;
+    const persistedPages = await Promise.all(
+      comic.pages.map(async (page) => {
+        const persistedPanels = [];
+        for (let i = 0; i < page.length; i += batchSize) {
+          const batch = page.slice(i, i + batchSize);
+          const persistedBatch = await Promise.all(
+            batch.map(async (panel) => ({
+              ...panel,
+              url: await persistMedia(panel.url),
+            }))
+          );
+          persistedPanels.push(...persistedBatch);
+        }
+        return persistedPanels;
+      })
+    );
+
+    persistedComic.pages = persistedPages;
+    return persistedComic;
+  } catch (error) {
+    console.error('Failed to persist comic media:', error);
+    return comic;
   }
-
-  // Persist panel media
-  persistedComic.pages = await Promise.all(
-    comic.pages.map(async (page) => {
-      return Promise.all(
-        page.map(async (panel) => ({
-          ...panel,
-          url: await persistMedia(panel.url),
-        }))
-      );
-    })
-  );
-
-  return persistedComic;
 };
 
 export const useComicStore = create<ComicStore>()(
@@ -73,6 +88,7 @@ export const useComicStore = create<ComicStore>()(
       currentComic: null,
       currentPageIndex: 0,
       isCreatorMode: false,
+      mediaLoadingStates: {},
 
       setCurrentComic: (comic) => {
         if (!comic) {
@@ -192,47 +208,58 @@ export const useComicStore = create<ComicStore>()(
       setCurrentPageIndex: (index) => 
         set({ currentPageIndex: index }),
 
-      saveDraft: async () => {
-        const state = get();
-        if (!state.currentComic) return;
+      saveDraft: async (comic: Comic) => {
+        try {
+          const persistedComic = await persistComicMedia(comic);
+          const state = get();
+          const existingIndex = state.draftComics.findIndex(d => d.id === persistedComic.id);
+          const updatedDrafts = [...state.draftComics];
 
-        const persistedComic = await persistComicMedia(state.currentComic);
-        const existingIndex = state.draftComics.findIndex(c => c.id === persistedComic.id);
-        const updatedDrafts = [...state.draftComics];
+          if (existingIndex >= 0) {
+            updatedDrafts[existingIndex] = persistedComic;
+          } else {
+            updatedDrafts.push(persistedComic);
+          }
 
-        if (existingIndex >= 0) {
-          updatedDrafts[existingIndex] = persistedComic;
-        } else {
-          updatedDrafts.push(persistedComic);
+          set({
+            draftComics: updatedDrafts,
+            currentComic: persistedComic,
+          });
+
+          return persistedComic;
+        } catch (error) {
+          console.error('Failed to save draft:', error);
+          return comic;
         }
-
-        set({ draftComics: updatedDrafts });
       },
 
-      publishComic: async () => {
-        const state = get();
-        if (!state.currentComic) return;
+      publishComic: async (comic: Comic) => {
+        try {
+          const persistedComic = await persistComicMedia(comic);
+          const state = get();
+          const existingIndex = state.publishedComics.findIndex(c => c.id === persistedComic.id);
+          const updatedComics = [...state.publishedComics];
+          const updatedDrafts = state.draftComics.filter(d => d.id !== persistedComic.id);
 
-        const persistedComic = await persistComicMedia(state.currentComic);
-        const existingIndex = state.publishedComics.findIndex(c => c.id === persistedComic.id);
-        const updatedComics = [...state.publishedComics];
+          if (existingIndex >= 0) {
+            updatedComics[existingIndex] = persistedComic;
+          } else {
+            updatedComics.push(persistedComic);
+          }
 
-        // Remove from drafts if it was a draft
-        const updatedDrafts = state.draftComics.filter(d => d.id !== persistedComic.id);
+          set({
+            publishedComics: updatedComics,
+            draftComics: updatedDrafts,
+            currentComic: null,
+            isCreatorMode: false,
+            currentPageIndex: 0,
+          });
 
-        if (existingIndex >= 0) {
-          updatedComics[existingIndex] = persistedComic;
-        } else {
-          updatedComics.push(persistedComic);
+          return persistedComic;
+        } catch (error) {
+          console.error('Failed to publish comic:', error);
+          return comic;
         }
-
-        set({
-          publishedComics: updatedComics,
-          draftComics: updatedDrafts,
-          currentComic: null,
-          isCreatorMode: false,
-          currentPageIndex: 0,
-        });
       },
 
       unpublishComic: (comicId) =>
@@ -265,6 +292,14 @@ export const useComicStore = create<ComicStore>()(
           currentPageIndex: 0,
           isCreatorMode: true,
         }),
+
+      setMediaLoaded: (panelId: string, loaded: boolean) =>
+        set((state) => ({
+          mediaLoadingStates: {
+            ...state.mediaLoadingStates,
+            [panelId]: loaded,
+          },
+        })),
     }),
     {
       name: 'comic-storage',

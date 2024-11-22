@@ -40,11 +40,11 @@ export const Creator: React.FC = () => {
 
           const panel = {
             id: nanoid(),
-            type: file.type.includes('video') ? 'video' : 
-                  file.type.includes('gif') ? 'gif' : 'image',
+            type: file.type.includes('video') ? 'video' as const : 
+                  file.type.includes('gif') ? 'gif' as const : 'image' as const,
             url: URL.createObjectURL(file),
             caption: '',
-            size: 'medium',
+            size: 'medium' as const,
             aspectRatio,
             position: { row: 0, col: 0 }
           };
@@ -76,7 +76,7 @@ export const Creator: React.FC = () => {
     setIsSaving(true);
     try {
       if (currentComic && currentComic.pages[0]?.length > 0) {
-        publishComic();
+        await publishComic(currentComic);
         setCurrentComic(null);
       }
     } finally {
@@ -88,7 +88,7 @@ export const Creator: React.FC = () => {
     setIsSaving(true);
     try {
       if (currentComic) {
-        saveDraft();
+        await saveDraft(currentComic);
       }
     } finally {
       setIsSaving(false);

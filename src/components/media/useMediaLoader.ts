@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { mediaCache } from './MediaCache';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { mediaService } from '../../utils/mediaService';
 
 interface UseMediaLoaderProps {
   url: string;
@@ -7,82 +7,77 @@ interface UseMediaLoaderProps {
   onError?: () => void;
 }
 
-export const useMediaLoader = ({ url, onLoad, onError }: UseMediaLoaderProps) => {
+export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string>('');
-  
   const mountedRef = useRef(true);
-  const retryTimeoutRef = useRef<number>();
+  const previousUrlRef = useRef(url);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadMedia = useCallback(async () => {
     if (!url || !mountedRef.current) return;
 
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    setIsLoading(true);
+    setError(null);
+
     try {
-      setIsLoading(true);
-      setError(null);
-
-      // Handle blob URLs directly
-      if (url.startsWith('blob:')) {
-        setObjectUrl(url);
+      const newUrl = await mediaService.load(url);
+      
+      if (mountedRef.current) {
+        previousUrlRef.current = url;
+        setObjectUrl(newUrl);
         setIsLoading(false);
         onLoad?.();
-        return;
       }
-
-      // Try to get from cache or load
-      const cached = await mediaCache.get(url);
-      if (cached?.loaded) {
-        setObjectUrl(cached.objectUrl);
-        setIsLoading(false);
-        onLoad?.();
-        return;
-      }
-
-      // Load and cache the media
-      const media = await mediaCache.load(url);
-      if (!mountedRef.current) return;
-
-      setObjectUrl(media.objectUrl);
-      setIsLoading(false);
-      onLoad?.();
-
     } catch (err) {
       if (!mountedRef.current) return;
+      if (err instanceof Error && err.name === 'AbortError') return;
 
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load media';
-      console.error('Error loading media:', errorMessage);
-      
-      setError(errorMessage);
+      console.error('Failed to load media:', err);
+      setError('Failed to load media');
       setIsLoading(false);
       onError?.();
+    } finally {
+      if (mountedRef.current) {
+        abortControllerRef.current = null;
+      }
     }
   }, [url, onLoad, onError]);
 
   useEffect(() => {
     mountedRef.current = true;
-
     return () => {
       mountedRef.current = false;
-      if (retryTimeoutRef.current) {
-        window.clearTimeout(retryTimeoutRef.current);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (objectUrl && previousUrlRef.current !== url) {
+        mediaService.revoke(previousUrlRef.current);
       }
     };
-  }, []);
+  }, [url, objectUrl]);
 
   useEffect(() => {
-    if (retryTimeoutRef.current) {
-      window.clearTimeout(retryTimeoutRef.current);
+    if (previousUrlRef.current !== url) {
+      loadMedia();
     }
-    loadMedia();
   }, [url, loadMedia]);
 
-  const retry = useCallback(() => {
-    if (retryTimeoutRef.current) {
-      window.clearTimeout(retryTimeoutRef.current);
+  const retry = useCallback(async () => {
+    if (!url) return;
+    
+    try {
+      await mediaService.clear();
+      await loadMedia();
+    } catch (err) {
+      console.error('Retry failed:', err);
     }
-    loadMedia();
-  }, [loadMedia]);
+  }, [url, loadMedia]);
 
   return { isLoading, error, objectUrl, retry };
-};
+}

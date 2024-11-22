@@ -11,13 +11,13 @@ interface MediaContentProps {
 }
 
 const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'image', onLoad, onError }) => {
-  const { isLoading, error, mediaUrl, retry } = useMedia(url);
+  const { isLoading, error, objectUrl, retryLoad } = useMedia(url);
 
   useEffect(() => {
-    if (!isLoading && !error && mediaUrl) {
+    if (!isLoading && !error && objectUrl) {
       onLoad?.();
     }
-  }, [isLoading, error, mediaUrl, onLoad]);
+  }, [isLoading, error, objectUrl, onLoad]);
 
   useEffect(() => {
     if (error) {
@@ -26,10 +26,10 @@ const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'ima
   }, [error, onError]);
 
   if (error) {
-    return <MediaError message={error} onRetry={retry} />;
+    return <MediaError message={error} onRetry={retryLoad} />;
   }
 
-  if (isLoading || !mediaUrl) {
+  if (isLoading || !objectUrl) {
     return <MediaLoading />;
   }
 
@@ -41,7 +41,7 @@ const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'ima
     return (
       <video
         {...commonProps}
-        src={mediaUrl}
+        src={objectUrl}
         autoPlay
         loop
         muted
@@ -53,7 +53,7 @@ const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'ima
   return (
     <img
       {...commonProps}
-      src={mediaUrl}
+      src={objectUrl}
       alt=""
       loading="eager"
       decoding="async"
