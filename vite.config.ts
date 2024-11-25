@@ -1,32 +1,36 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173,
-    strictPort: true,
-    host: true,
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'dnd-kit': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/modifiers'],
-          'auth': ['@auth0/auth0-react'],
-        },
-      },
-    },
-    target: 'esnext',
-    modulePreload: true,
-    minify: 'terser',
-    cssMinify: true,
-    cssCodeSplit: true,
-    chunkSizeWarningLimit: 1000,
-    assetsInlineLimit: 4096,
+  plugins: [
+    react({
+      jsxRuntime: 'automatic',
+      babel: {
+        plugins: [
+          ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]
+        ]
+      }
+    })
+  ],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src')
+    }
   },
   optimizeDeps: {
-    exclude: ['lucide-react'],
+    include: ['react', 'react-dom']
   },
+  server: {
+    headers: {
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "img-src 'self' data: blob: https://*.cloudinary.com",
+        "media-src 'self' data: blob: https://*.cloudinary.com",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        "connect-src 'self' https://*.cloudinary.com"
+      ].join('; ')
+    }
+  }
 });

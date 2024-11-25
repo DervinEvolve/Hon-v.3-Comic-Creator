@@ -1,5 +1,3 @@
-import { Comic } from './types';
-
 export interface CaptionPosition {
   x: number;
   y: number;
@@ -22,21 +20,24 @@ export interface CoverPosition {
 
 export interface Panel {
   id: string;
-  type: 'image' | 'video' | 'gif';
   url: string;
+  type: 'image' | 'video' | 'gif';
+  size?: 'small' | 'medium' | 'large';
+  aspectRatio: number;
   caption?: string;
-  captionPosition?: CaptionPosition;
-  captionStyle?: CaptionStyle;
-  transition?: 'fade' | 'slide';
-  size?: 'small' | 'medium' | 'large' | 'full';
-  position?: {
+  position: {
     row: number;
     col: number;
-    rowSpan?: number;
-    colSpan?: number;
   };
-  aspectRatio?: number;
-  focalPoint?: { x: number; y: number };
+  captionPosition?: {
+    x: number;
+    y: number;
+  };
+  captionStyle?: {
+    backgroundColor?: string;
+    fontFamily?: string;
+    fontSize?: string;
+  };
 }
 
 export interface Template {
@@ -60,11 +61,12 @@ export interface Comic {
   creator: string;
   coverImage: string;
   coverType: 'image' | 'video' | 'gif';
-  coverPosition?: CoverPosition;
-  template?: Template;
-  panels: Panel[];
+  coverPosition?: {
+    x: number;
+    y: number;
+    scale: number;
+  };
   pages: Panel[][];
   createdAt: Date;
   lastModified: Date;
-  isReading?: boolean;
 }

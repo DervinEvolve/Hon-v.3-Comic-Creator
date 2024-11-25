@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { mediaService } from '../utils/mediaService';
+import { mediaStorage } from '../utils/mediaStorage';
 
 interface UseMediaReturn {
   isLoading: boolean;
@@ -17,43 +17,79 @@ export function useMedia(url: string | null): UseMediaReturn {
   
   const mountedRef = useRef(true);
   const previousUrlRef = useRef(url);
-  const loadAttempts = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const retryCount = useRef(0);
+
+  const cleanupResources = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (state.objectUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(state.objectUrl);
+    }
+  }, [state.objectUrl]);
 
   const loadMedia = useCallback(async () => {
-    if (!url) {
+    if (!url || !mountedRef.current) {
       setState({ isLoading: false, error: null, objectUrl: null });
       return;
     }
 
-    // Skip if nothing changed and we have a valid URL
     if (previousUrlRef.current === url && state.objectUrl) {
-      setState(prev => ({ ...prev, isLoading: false }));
       return;
     }
 
+    cleanupResources();
     setState(prev => ({ ...prev, isLoading: true, error: null }));
-    loadAttempts.current = 0;
 
     try {
-      const objectUrl = await mediaService.load(url);
+      // Try to load from storage first
+      const storedUrl = await mediaStorage.load(url);
+      if (storedUrl && mountedRef.current) {
+        previousUrlRef.current = url;
+        setState({ isLoading: false, error: null, objectUrl: storedUrl });
+        return;
+      }
+
+      // For new URLs, fetch and store
+      const objectUrl = await mediaStorage.fetchAndStore(url);
+      
       if (mountedRef.current) {
         previousUrlRef.current = url;
         setState({ isLoading: false, error: null, objectUrl });
       }
     } catch (err) {
-      if (mountedRef.current) {
-        setState({ isLoading: false, error: 'Failed to load media', objectUrl: null });
-      }
+      if (!mountedRef.current) return;
+      if (err instanceof Error && err.name === 'AbortError') return;
+      
+      setState({ isLoading: false, error: 'Failed to load media', objectUrl: null });
+      console.error('Failed to load media:', err);
     }
-  }, [url, state.objectUrl]);
+  }, [url, state.objectUrl, cleanupResources]);
 
-  const retryLoad = useCallback(() => {
-    loadMedia();
-  }, [loadMedia]);
+  const retryLoad = useCallback(async () => {
+    if (!url || retryCount.current >= 3) {
+      setState(prev => ({ ...prev, error: 'Maximum retry attempts reached' }));
+      return;
+    }
+    retryCount.current += 1;
+    await loadMedia();
+  }, [url, loadMedia]);
 
   useEffect(() => {
-    loadMedia();
-  }, [loadMedia]);
+    if (previousUrlRef.current !== url) {
+      loadMedia();
+    }
+  }, [url, loadMedia]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      cleanupResources();
+    };
+  }, [cleanupResources]);
 
   return {
     ...state,

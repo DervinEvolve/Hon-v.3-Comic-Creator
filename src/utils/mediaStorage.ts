@@ -29,6 +29,11 @@ export class MediaStorage {
   }
 
   async load(key: string): Promise<string | null> {
+    // If it's a blob URL, return it directly
+    if (key.startsWith('blob:')) {
+      return key;
+    }
+
     try {
       // Check if we already have an object URL
       const existingUrl = this.objectUrls.get(key);
@@ -70,55 +75,59 @@ export class MediaStorage {
     await del(key);
   }
 
-  async fetchAndStore(url: string): Promise<string> {
+  async getCachedMedia(key: string): Promise<CachedMedia | null> {
     try {
-      const existingPromise = this.fetchPromises.get(url);
-      if (existingPromise) return existingPromise;
-
-      // For blob URLs, try to get from cache first
-      if (url.startsWith('blob:')) {
-        const cached = await this.load(url);
-        if (cached) return cached;
-
-        try {
-          // Try to get the blob directly from the URL
-          const blob = await fetch(url).then(r => r.blob());
-          return this.store(url, blob);
-        } catch (error) {
-          console.warn('Failed to fetch blob URL directly:', error);
-          // If the blob URL is invalid, try to recover from IndexedDB
-          const storedData = await get(url);
-          if (storedData?.blob) {
-            return this.store(url, storedData.blob);
-          }
-          throw error;
-        }
+      const cached: CachedMedia | undefined = await get(key);
+      if (!cached) return null;
+      
+      if (Date.now() - cached.timestamp > TTL) {
+        await this.remove(key);
+        return null;
       }
+      
+      return cached;
+    } catch (error) {
+      console.error('Error getting cached media:', error);
+      return null;
+    }
+  }
 
-      // Rest of the existing fetchAndStore logic...
-      const fetchPromise = (async () => {
+  async fetchAndStore(url: string): Promise<string> {
+    // If it's already a blob URL, return it directly
+    if (url.startsWith('blob:')) {
+      return url;
+    }
+
+    // Check if we already have an object URL
+    const existingUrl = this.objectUrls.get(url);
+    if (existingUrl) return existingUrl;
+
+    // Check if there's an ongoing fetch
+    const existingPromise = this.fetchPromises.get(url);
+    if (existingPromise) return existingPromise;
+
+    const fetchPromise = (async () => {
+      try {
         const response = await fetch(url, {
-          mode: 'cors',
+          cache: 'force-cache',
           credentials: 'omit',
-          headers: {
-            'Accept': 'image/*, video/*, application/octet-stream',
-          },
         });
 
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
+        
         const blob = await response.blob();
-        const objectUrl = await this.store(url, blob);
-        this.fetchPromises.delete(url);
+        const objectUrl = URL.createObjectURL(blob);
+        
+        await this.store(url, blob);
+        this.objectUrls.set(url, objectUrl);
         return objectUrl;
-      })();
+      } finally {
+        this.fetchPromises.delete(url);
+      }
+    })();
 
-      this.fetchPromises.set(url, fetchPromise);
-      return fetchPromise;
-    } catch (error) {
-      console.error('Error in fetchAndStore:', error);
-      throw error;
-    }
+    this.fetchPromises.set(url, fetchPromise);
+    return fetchPromise;
   }
 
   revokeAll(): void {

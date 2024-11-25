@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useMedia } from '../hooks/useMedia';
 import { MediaError } from './MediaError';
 import { MediaLoading } from './MediaLoading';
@@ -11,19 +11,21 @@ interface MediaContentProps {
 }
 
 const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'image', onLoad, onError }) => {
+  const [isLoaded, setIsLoaded] = useState(false);
   const { isLoading, error, objectUrl, retryLoad } = useMedia(url);
-
-  useEffect(() => {
-    if (!isLoading && !error && objectUrl) {
-      onLoad?.();
-    }
-  }, [isLoading, error, objectUrl, onLoad]);
 
   useEffect(() => {
     if (error) {
       onError?.();
     }
   }, [error, onError]);
+
+  const handleLoad = useCallback(() => {
+    if (!isLoaded) {
+      setIsLoaded(true);
+      onLoad?.();
+    }
+  }, [isLoaded, onLoad]);
 
   if (error) {
     return <MediaError message={error} onRetry={retryLoad} />;
@@ -34,7 +36,10 @@ const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'ima
   }
 
   const commonProps = {
-    className: "w-full h-full object-contain",
+    className: `w-full h-full object-cover transition-opacity duration-300 ${
+      isLoaded ? 'opacity-100' : 'opacity-0'
+    }`,
+    onError: () => onError?.(),
   };
 
   if (type === 'video' || type === 'gif') {
@@ -46,6 +51,8 @@ const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'ima
         loop
         muted
         playsInline
+        crossOrigin="anonymous"
+        onLoadedData={handleLoad}
       />
     );
   }
@@ -57,6 +64,8 @@ const MediaContent: React.FC<MediaContentProps> = React.memo(({ url, type = 'ima
       alt=""
       loading="eager"
       decoding="async"
+      crossOrigin="anonymous"
+      onLoad={handleLoad}
     />
   );
 });

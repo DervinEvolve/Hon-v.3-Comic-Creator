@@ -1,14 +1,16 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, Layout, Save, Send } from 'lucide-react';
+import { Upload, Layout, Save, Send, Wand2 } from 'lucide-react';
 import { useComicStore } from '../store/useComicStore';
 import { TemplateSelector } from './creator/TemplateSelector';
 import { PanelGrid } from './creator/PanelGrid';
 import { TitleEditor } from './creator/TitleEditor';
 import { PageManager } from './creator/PageManager';
 import { CoverUploader } from './creator/CoverUploader';
-import { Template } from '../types';
+import { Template, Panel } from '../types';
 import { nanoid } from 'nanoid';
+import { AIControls } from './creator/AIControls';
+import { fluxService } from '../services/fluxService';
 
 export const Creator: React.FC = () => {
   const { 
@@ -38,7 +40,7 @@ export const Creator: React.FC = () => {
             ? media.videoWidth / media.videoHeight
             : media.width / media.height;
 
-          const panel = {
+          const panel: Panel = {
             id: nanoid(),
             type: file.type.includes('video') ? 'video' as const : 
                   file.type.includes('gif') ? 'gif' as const : 'image' as const,
@@ -101,6 +103,57 @@ export const Creator: React.FC = () => {
 
   const currentPagePanels = currentComic?.pages[currentPageIndex] || [];
 
+  useEffect(() => {
+    return () => {
+      // Cleanup blob URLs when component unmounts
+      if (currentComic) {
+        currentComic.pages.forEach(page => {
+          page.forEach(panel => {
+            if (panel.url.startsWith('blob:')) {
+              URL.revokeObjectURL(panel.url);
+            }
+          });
+        });
+      }
+    };
+  }, [currentComic]);
+
+  const handleGenerateImage = async (prompt: string) => {
+    try {
+      const imageUrl = await fluxService.generateImage(prompt);
+      const panel: Panel = {
+        id: nanoid(),
+        type: 'image',
+        url: imageUrl,
+        caption: prompt,
+        size: 'medium',
+        aspectRatio: 1, // Will be updated when image loads
+        position: { row: 0, col: 0 }
+      };
+      addPanel(panel, currentPageIndex);
+    } catch (error) {
+      console.error('Failed to generate image:', error);
+      alert('Failed to generate image. Please try again.');
+    }
+  };
+
+  const handleEditImage = async (prompt: string, imageUrl: string) => {
+    try {
+      const editedImageUrl = await fluxService.editImage(prompt, imageUrl);
+      // Update the current panel with the edited image
+      const panelToUpdate = currentPagePanels.find(p => p.url === imageUrl);
+      if (panelToUpdate) {
+        updatePanel({
+          ...panelToUpdate,
+          url: editedImageUrl
+        }, currentPageIndex);
+      }
+    } catch (error) {
+      console.error('Failed to edit image:', error);
+      alert('Failed to edit image. Please try again.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -134,18 +187,31 @@ export const Creator: React.FC = () => {
 
         {/* Cover Uploader */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-xl font-semibold mb-4">Comic Cover</h2>
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">Comic Cover</h2>
           <CoverUploader />
         </div>
 
         {/* Template Selector and Content Upload */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
           <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-4 flex items-center">
+            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-800">
               <Layout className="w-5 h-5 mr-2" />
               Choose a Layout Template
             </h2>
             <TemplateSelector onSelect={setSelectedTemplate} />
+          </div>
+
+          {/* Add AI Controls */}
+          <div className="border-t pt-6">
+            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-800">
+              <Wand2 className="w-5 h-5 mr-2" />
+              AI Image Generation
+            </h2>
+            <AIControls 
+              onGenerate={handleGenerateImage}
+              onEdit={handleEditImage}
+              selectedImageUrl={currentPagePanels.length ? currentPagePanels[0].url : undefined}
+            />
           </div>
 
           <div
@@ -156,10 +222,10 @@ export const Creator: React.FC = () => {
           >
             <input {...getInputProps()} />
             <Upload className="mx-auto h-12 w-12 text-gray-400" />
-            <p className="mt-2 text-sm text-gray-600">
+            <p className="mt-2 text-sm text-gray-800">
               Drag 'n' drop images, videos, or GIFs here, or click to select files
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-600">
               Supported formats: JPG, PNG, GIF, MP4, WebM
             </p>
           </div>

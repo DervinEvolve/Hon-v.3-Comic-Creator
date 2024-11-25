@@ -21,7 +21,7 @@ export const TitleEditor: React.FC = () => {
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="flex-1 px-4 py-2 text-2xl font-bold border-b-2 border-blue-500 focus:outline-none bg-transparent"
+            className="flex-1 px-4 py-2 text-2xl font-bold border-b-2 border-blue-500 focus:outline-none bg-transparent text-gray-800 placeholder-gray-500"
             placeholder="Enter comic title..."
             autoFocus
           />

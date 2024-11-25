@@ -45,7 +45,7 @@ export const Reader: React.FC = () => {
         panel.size === 'large' ? 'col-span-2 row-span-2' :
         panel.size === 'medium' ? 'col-span-1 row-span-1' :
         'col-span-1'
-      }`}
+      } ${!loadedPanels.has(panel.id) ? 'animate-pulse' : ''}`}
       style={{
         minHeight: '300px',
         aspectRatio: panel.aspectRatio || '1',
@@ -63,8 +63,10 @@ export const Reader: React.FC = () => {
             left: `${panel.captionPosition?.x || 50}%`,
             top: `${panel.captionPosition?.y || 90}%`,
             transform: 'translate(-50%, -50%)',
-            backgroundColor: `rgba(0,0,0,0.75)`,
-            color: 'white',
+            backgroundColor: panel.captionStyle?.backgroundColor || 'rgba(0,0,0,0.75)',
+            color: panel.captionStyle?.backgroundColor === 'white' ? 'black' : 'white',
+            fontFamily: panel.captionStyle?.fontFamily || 'inherit',
+            fontSize: panel.captionStyle?.fontSize || '1rem',
             maxWidth: '90%',
           }}
         >
