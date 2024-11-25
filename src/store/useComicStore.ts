@@ -32,13 +32,56 @@ interface ComicStore {
 }
 
 const persistMedia = async (url: string): Promise<string> => {
-  if (!url || url.startsWith('data:')) return url;
+  if (!url) return '';
   
   try {
-    return await mediaService.load(url);
+    // Already a Cloudinary URL
+    if (url.includes('cloudinary')) {
+      try {
+        const response = await fetch(url, { 
+          method: 'HEAD',
+          mode: 'cors',
+          credentials: 'same-origin'
+        });
+        if (!response.ok) {
+          throw new Error('Invalid Cloudinary URL');
+        }
+        return url;
+      } catch (error) {
+        console.error('Cloudinary URL validation error:', error);
+        // If CSP blocks the HEAD request, try to proceed anyway
+        if (error instanceof Error && error.message.includes('Content Security Policy')) {
+          return url;
+        }
+        throw error;
+      }
+    }
+
+    // Handle blob or data URLs
+    if (url.startsWith('blob:') || url.startsWith('data:')) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch media');
+      
+      const blob = await response.blob();
+      const file = new File([blob], `upload.${blob.type.split('/')[1] || 'jpg'}`, { 
+        type: blob.type,
+        lastModified: Date.now()
+      });
+      
+      const cloudinaryUrl = await mediaService.upload(file);
+      if (!cloudinaryUrl) throw new Error('Upload failed');
+      
+      if (url.startsWith('blob:')) {
+        URL.revokeObjectURL(url);
+      }
+      
+      return cloudinaryUrl;
+    }
+    
+    return await mediaService.upload(url);
   } catch (error) {
-    console.error('Failed to persist media:', error);
-    return url;
+    console.error('Media persistence error:', error);
+    throw new Error(`Failed to persist media: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
 
@@ -54,19 +97,21 @@ const persistComicMedia = async (comic: Comic): Promise<Comic> => {
       persistedComic.coverImage = await persistMedia(comic.coverImage);
     }
 
-    const batchSize = 2;
     const persistedPages = await Promise.all(
-      comic.pages.map(async (page) => {
+      comic.pages.map(async (page, pageIndex) => {
         const persistedPanels = [];
-        for (let i = 0; i < page.length; i += batchSize) {
-          const batch = page.slice(i, i + batchSize);
-          const persistedBatch = await Promise.all(
-            batch.map(async (panel) => ({
+        for (let i = 0; i < page.length; i++) {
+          try {
+            const panel = page[i];
+            const persistedUrl = await persistMedia(panel.url);
+            persistedPanels.push({
               ...panel,
-              url: await persistMedia(panel.url),
-            }))
-          );
-          persistedPanels.push(...persistedBatch);
+              url: persistedUrl,
+            });
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            throw new Error(`Failed to persist panel ${i} on page ${pageIndex}: ${errorMessage}`);
+          }
         }
         return persistedPanels;
       })
@@ -75,8 +120,9 @@ const persistComicMedia = async (comic: Comic): Promise<Comic> => {
     persistedComic.pages = persistedPages;
     return persistedComic;
   } catch (error) {
-    console.error('Failed to persist comic media:', error);
-    return comic;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Failed to persist comic media:', errorMessage);
+    throw new Error(`Failed to persist comic: ${errorMessage}`);
   }
 };
 
@@ -235,30 +281,27 @@ export const useComicStore = create<ComicStore>()(
 
       publishComic: async (comic: Comic) => {
         try {
-          const persistedComic = await persistComicMedia(comic);
-          const state = get();
-          const existingIndex = state.publishedComics.findIndex(c => c.id === persistedComic.id);
-          const updatedComics = [...state.publishedComics];
-          const updatedDrafts = state.draftComics.filter(d => d.id !== persistedComic.id);
-
-          if (existingIndex >= 0) {
-            updatedComics[existingIndex] = persistedComic;
-          } else {
-            updatedComics.push(persistedComic);
-          }
-
-          set({
-            publishedComics: updatedComics,
-            draftComics: updatedDrafts,
+          const persistedComic = await persistComicMedia({
+            ...comic,
+            id: comic.id || nanoid(),
+            lastModified: new Date()
+          });
+          
+          set((state) => ({
+            publishedComics: [
+              persistedComic,
+              ...state.publishedComics.filter(c => c.id !== persistedComic.id)
+            ],
+            draftComics: state.draftComics.filter(d => d.id !== persistedComic.id),
             currentComic: null,
             isCreatorMode: false,
             currentPageIndex: 0,
-          });
+          }));
 
           return persistedComic;
         } catch (error) {
           console.error('Failed to publish comic:', error);
-          return comic;
+          throw error;
         }
       },
 

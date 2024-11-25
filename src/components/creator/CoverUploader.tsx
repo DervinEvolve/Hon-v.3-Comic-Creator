@@ -2,6 +2,7 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, Image, Film, X, Move, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { useComicStore } from '../../store/useComicStore';
+import { mediaService } from '../../utils/mediaService';
 
 interface CoverPosition {
   x: number;
@@ -27,27 +28,34 @@ export const CoverUploader: React.FC = () => {
     };
   }, [previewUrl]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (!file) return;
-
+    
     const type = file.type.includes('video') ? 'video' :
-                file.type.includes('gif') ? 'gif' : 'image';
-    
-    if (previewUrl && previewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(previewUrl);
-    }
+                 file.type.includes('gif') ? 'gif' : 'image';
 
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    setMediaType(type);
-    setPosition({ x: 50, y: 50, scale: 1 });
-    
-    updateComicCover({
-      url,
-      type,
-    });
-  }, [previewUrl, updateComicCover]);
+    try {
+      const cloudinaryUrl = await mediaService.upload(file);
+      
+      if (!cloudinaryUrl) {
+        throw new Error('No URL returned from upload');
+      }
+
+      setPreviewUrl(cloudinaryUrl);
+      setMediaType(type);
+      setPosition({ x: 50, y: 50, scale: 1 });
+      updateComicCover({
+        url: cloudinaryUrl,
+        type,
+      });
+    } catch (error) {
+      console.error('Failed to upload cover:', error);
+      setPreviewUrl('');
+      setMediaType('image');
+      alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [updateComicCover]);
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
@@ -59,6 +67,8 @@ export const CoverUploader: React.FC = () => {
     multiple: false,
     maxSize: 10485760, // 10MB
     noClick: true,
+    noDrag: false,
+    noDragEventsBubbling: false,
   });
 
   const handleRemoveCover = () => {
@@ -140,7 +150,10 @@ export const CoverUploader: React.FC = () => {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
-        <div {...getRootProps({ className: 'h-full' })}>
+        <div {...getRootProps()} className="dropzone-container">
+          <label htmlFor="cover-upload-input" className="sr-only">
+            Upload cover image or video
+          </label>
           <input {...getInputProps()} />
           {previewUrl ? (
             <>

@@ -1,90 +1,56 @@
-import { set, get, del } from 'idb-keyval';
+import { env } from './env';
 
-interface CachedMedia {
-  blob: Blob;
-  timestamp: number;
-  type: string;
-}
+export const mediaService = {
+  async load(input: string | File): Promise<string> {
+    if (typeof input === 'string') {
+      return input;
+    }
 
-class MediaService {
-  private memoryCache = new Map<string, string>();
-  private loadingPromises = new Map<string, Promise<string>>();
-  private readonly TTL = 30 * 24 * 60 * 60 * 1000;
+    const formData = new FormData();
+    formData.append('file', input);
+    formData.append('upload_preset', env.VITE_CLOUDINARY_UPLOAD_PRESET);
+    formData.append('api_key', env.VITE_CLOUDINARY_API_KEY);
 
-  async load(url: string): Promise<string> {
-    const existingPromise = this.loadingPromises.get(url);
-    if (existingPromise) return existingPromise;
+    console.log('Upload preset:', env.VITE_CLOUDINARY_UPLOAD_PRESET);
+    console.log('Cloud name:', env.VITE_CLOUDINARY_CLOUD_NAME);
 
-    const loadPromise = (async () => {
-      // Check memory cache first
-      const cached = this.memoryCache.get(url);
-      if (cached) return cached;
+    // Debug logging
+    console.log('FormData contents:', {
+      file: input,
+      upload_preset: env.VITE_CLOUDINARY_UPLOAD_PRESET,
+      cloudName: env.VITE_CLOUDINARY_CLOUD_NAME
+    });
 
-      // Then check IndexedDB
-      const dbCached: CachedMedia | undefined = await get(url);
-      if (dbCached && Date.now() - dbCached.timestamp <= this.TTL) {
-        const objectUrl = URL.createObjectURL(dbCached.blob);
-        this.memoryCache.set(url, objectUrl);
-        return objectUrl;
+    try {
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Upload error details:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData,
+          requestURL: `https://api.cloudinary.com/v1_1/${env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
+          preset: env.VITE_CLOUDINARY_UPLOAD_PRESET
+        });
+        throw new Error(errorData.error?.message || 'Upload failed');
       }
 
-      // If not cached, fetch and store
-      const blob = await this.fetchBlob(url);
-      const objectUrl = URL.createObjectURL(blob);
-      this.memoryCache.set(url, objectUrl);
-      
-      // Store in IndexedDB
-      await set(url, {
-        blob,
-        timestamp: Date.now(),
-        type: blob.type
-      });
-
-      return objectUrl;
-    })();
-
-    this.loadingPromises.set(url, loadPromise);
-    try {
-      return await loadPromise;
-    } finally {
-      this.loadingPromises.delete(url);
-    }
-  }
-
-  private async fetchBlob(url: string): Promise<Blob> {
-    try {
-      const response = await fetch(url, {
-        mode: 'cors',
-        credentials: 'omit'
-      });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return await response.blob();
+      const data = await response.json();
+      return data.secure_url;
     } catch (error) {
-      console.error('Failed to fetch blob:', error);
+      console.error('Failed to upload media:', error);
       throw error;
     }
+  },
+
+  upload(input: string | File): Promise<string> {
+    return this.load(input);
   }
-
-  revoke(url: string): void {
-    const objectUrl = this.memoryCache.get(url);
-    if (objectUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(objectUrl);
-    }
-    this.memoryCache.delete(url);
-    this.loadingPromises.delete(url);
-  }
-
-  async clear(): Promise<void> {
-    for (const objectUrl of this.memoryCache.values()) {
-      if (objectUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    }
-    this.memoryCache.clear();
-    this.loadingPromises.clear();
-    await del('mediaCache');
-  }
-
-}
-
-export const mediaService = new MediaService();
+};
