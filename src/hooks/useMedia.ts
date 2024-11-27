@@ -44,6 +44,18 @@ export function useMedia(url: string | null): UseMediaReturn {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
+      // For Cloudinary URLs, use them directly
+      if (url.includes('cloudinary.com')) {
+        setState({ isLoading: false, error: null, objectUrl: url });
+        return;
+      }
+
+      // For blob URLs, use them directly
+      if (url.startsWith('blob:')) {
+        setState({ isLoading: false, error: null, objectUrl: url });
+        return;
+      }
+
       // Try to load from storage first
       const storedUrl = await mediaStorage.load(url);
       if (storedUrl && mountedRef.current) {
@@ -63,8 +75,8 @@ export function useMedia(url: string | null): UseMediaReturn {
       if (!mountedRef.current) return;
       if (err instanceof Error && err.name === 'AbortError') return;
       
-      setState({ isLoading: false, error: 'Failed to load media', objectUrl: null });
       console.error('Failed to load media:', err);
+      setState({ isLoading: false, error: 'Failed to load media', objectUrl: null });
     }
   }, [url, state.objectUrl, cleanupResources]);
 

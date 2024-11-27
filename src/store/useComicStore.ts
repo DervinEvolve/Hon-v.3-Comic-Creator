@@ -12,12 +12,13 @@ interface ComicStore {
   isCreatorMode: boolean;
   mediaLoadingStates: Record<string, boolean>;
   setCurrentComic: (comic: Comic | null) => void;
+  initializeComic: (comic: Comic) => void;
   updateComicTitle: (title: string) => void;
   updateComicCover: (cover: { url: string; type: 'image' | 'video' | 'gif' }) => void;
   addPanel: (panel: Panel, pageIndex: number) => void;
   updatePanel: (panel: Panel, pageIndex: number) => void;
   removePanel: (panelId: string, pageIndex: number) => void;
-  reorderPanels: (startIndex: number, endIndex: number, pageIndex: number) => void;
+  reorderPanels: (start: number, end: number, pageIndex: number) => void;
   addPage: () => void;
   removePage: (pageIndex: number) => void;
   setCurrentPageIndex: (index: number) => void;
@@ -38,50 +39,38 @@ const persistMedia = async (url: string): Promise<string> => {
     // Already a Cloudinary URL
     if (url.includes('cloudinary')) {
       try {
+        // Verify the Cloudinary URL is still valid
         const response = await fetch(url, { 
           method: 'HEAD',
-          mode: 'cors',
-          credentials: 'same-origin'
+          mode: 'cors'  // Remove credentials check for Cloudinary URLs
         });
-        if (!response.ok) {
-          throw new Error('Invalid Cloudinary URL');
+        if (response.ok) {
+          return url; // URL is valid, return as-is
         }
-        return url;
       } catch (error) {
-        console.error('Cloudinary URL validation error:', error);
-        // If CSP blocks the HEAD request, try to proceed anyway
-        if (error instanceof Error && error.message.includes('Content Security Policy')) {
-          return url;
-        }
-        throw error;
+        console.error('Error verifying Cloudinary URL:', error);
       }
     }
 
-    // Handle blob or data URLs
-    if (url.startsWith('blob:') || url.startsWith('data:')) {
+    // If URL is a blob or the Cloudinary URL is invalid, try to re-upload
+    try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error('Failed to fetch media');
-      
       const blob = await response.blob();
-      const file = new File([blob], `upload.${blob.type.split('/')[1] || 'jpg'}`, { 
-        type: blob.type,
-        lastModified: Date.now()
-      });
-      
+      const file = new File([blob], 'panel-content', { type: blob.type });
       const cloudinaryUrl = await mediaService.upload(file);
-      if (!cloudinaryUrl) throw new Error('Upload failed');
       
-      if (url.startsWith('blob:')) {
-        URL.revokeObjectURL(url);
+      if (!cloudinaryUrl) {
+        throw new Error('Failed to upload media to Cloudinary');
       }
       
       return cloudinaryUrl;
+    } catch (error) {
+      console.error('Failed to persist media:', error);
+      return url; // Return original URL as fallback
     }
-    
-    return await mediaService.upload(url);
   } catch (error) {
-    console.error('Media persistence error:', error);
-    throw new Error(`Failed to persist media: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error('Error in persistMedia:', error);
+    return url; // Return original URL as fallback
   }
 };
 
@@ -98,20 +87,14 @@ const persistComicMedia = async (comic: Comic): Promise<Comic> => {
     }
 
     const persistedPages = await Promise.all(
-      comic.pages.map(async (page, pageIndex) => {
+      comic.pages.map(async (page) => {
         const persistedPanels = [];
-        for (let i = 0; i < page.length; i++) {
-          try {
-            const panel = page[i];
-            const persistedUrl = await persistMedia(panel.url);
-            persistedPanels.push({
-              ...panel,
-              url: persistedUrl,
-            });
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new Error(`Failed to persist panel ${i} on page ${pageIndex}: ${errorMessage}`);
-          }
+        for (const panel of page) {
+          const persistedPanel = {
+            ...panel,
+            url: await persistMedia(panel.url)
+          };
+          persistedPanels.push(persistedPanel);
         }
         return persistedPanels;
       })
@@ -120,9 +103,8 @@ const persistComicMedia = async (comic: Comic): Promise<Comic> => {
     persistedComic.pages = persistedPages;
     return persistedComic;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Failed to persist comic media:', errorMessage);
-    throw new Error(`Failed to persist comic: ${errorMessage}`);
+    console.error('Failed to persist comic media:', error);
+    return comic; // Return original comic as fallback
   }
 };
 
@@ -136,18 +118,48 @@ export const useComicStore = create<ComicStore>()(
       isCreatorMode: false,
       mediaLoadingStates: {},
 
-      setCurrentComic: (comic) => {
+      initializeComic: (comic: Comic) => set({ currentComic: comic }),
+
+      setCurrentComic: (comic: Comic | null) => {
         if (!comic) {
           set({ currentComic: null, currentPageIndex: 0, isCreatorMode: false });
           return;
         }
 
+        // Ensure comic has required arrays
+        const updatedComic = {
+          ...comic,
+          pages: comic.pages || [[]],
+          pageTemplates: comic.pageTemplates || [],
+        };
+
+        // Only update isCreatorMode when initializing a new comic
+        const state = get();
         set({
-          currentComic: comic,
-          currentPageIndex: 0,
-          isCreatorMode: false,
+          currentComic: updatedComic,
+          currentPageIndex: state.currentPageIndex,
+          ...(state.currentComic === null && {
+            isCreatorMode: !updatedComic.id || updatedComic.id.startsWith('draft-'),
+          }),
         });
       },
+
+      toggleCreatorMode: () =>
+        set((state) => ({ 
+          isCreatorMode: !state.isCreatorMode,
+          currentPageIndex: 0,
+        })),
+
+      editComic: (comic) =>
+        set({
+          currentComic: {
+            ...comic,
+            pages: comic.pages || [[]],
+            pageTemplates: comic.pageTemplates || [],
+          },
+          currentPageIndex: 0,
+          isCreatorMode: true,
+        }),
 
       updateComicTitle: (title) => 
         set((state) => ({
@@ -320,20 +332,14 @@ export const useComicStore = create<ComicStore>()(
           const draft = state.draftComics.find(c => c.id === comicId);
           if (!draft) return state;
           return {
-            currentComic: draft,
+            currentComic: {
+              ...draft,
+              pages: draft.pages || [[]],
+              pageTemplates: draft.pageTemplates || [],
+            },
             currentPageIndex: 0,
             isCreatorMode: true,
           };
-        }),
-
-      toggleCreatorMode: () =>
-        set((state) => ({ isCreatorMode: !state.isCreatorMode })),
-
-      editComic: (comic) =>
-        set({
-          currentComic: comic,
-          currentPageIndex: 0,
-          isCreatorMode: true,
         }),
 
       setMediaLoaded: (panelId: string, loaded: boolean) =>

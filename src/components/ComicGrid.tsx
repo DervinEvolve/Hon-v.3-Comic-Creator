@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useComicStore } from '../store/useComicStore';
 import { Book, Edit2, Trash2, Save, Send } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { Comic } from '../types';
+import MediaContent from './MediaContent';
 
 export const ComicGrid: React.FC = () => {
   const { 
@@ -15,87 +16,9 @@ export const ComicGrid: React.FC = () => {
     deleteDraft,
     loadDraft 
   } = useComicStore();
-  const [loadedCovers, setLoadedCovers] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<'published' | 'drafts'>('published');
 
   const comics = activeTab === 'published' ? publishedComics : draftComics;
-
-  useEffect(() => {
-    const preloadCovers = async () => {
-      const loadCover = async (comic: Comic): Promise<boolean> => {
-        if (!comic.coverImage) return true;
-
-        try {
-          console.log('Attempting to load cover:', {
-            comicId: comic.id,
-            coverUrl: comic.coverImage,
-            coverType: comic.coverType
-          });
-
-          const element = comic.coverType === 'video' || comic.coverType === 'gif'
-            ? document.createElement('video')
-            : new Image();
-
-          return new Promise((resolve) => {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => {
-              controller.abort();
-              element.src = '';
-              console.error('Cover load timeout:', {
-                comicId: comic.id,
-                coverUrl: comic.coverImage
-              });
-              setLoadedCovers(prev => ({ ...prev, [comic.id]: false }));
-              resolve(false);
-            }, 10000);
-
-            const handleError = () => {
-              clearTimeout(timeoutId);
-              console.error('Cover load error:', {
-                comicId: comic.id,
-                coverUrl: comic.coverImage,
-                element: element instanceof HTMLVideoElement ? 'video' : 'image'
-              });
-              setLoadedCovers(prev => ({ ...prev, [comic.id]: false }));
-              resolve(false);
-            };
-
-            const cleanup = () => {
-              clearTimeout(timeoutId);
-              element.src = '';
-              element.remove();
-            };
-
-            const handleLoad = () => {
-              cleanup();
-              setLoadedCovers(prev => ({ ...prev, [comic.id]: true }));
-              resolve(true);
-            };
-
-            if (element instanceof HTMLVideoElement) {
-              element.onloadeddata = handleLoad;
-              element.onerror = handleError;
-            } else {
-              element.onload = handleLoad;
-              element.onerror = handleError;
-            }
-
-            element.src = comic.coverImage;
-            if (element instanceof HTMLVideoElement) {
-              element.load();
-            }
-          });
-        } catch (error) {
-          console.error('Failed to load cover:', error);
-          return false;
-        }
-      };
-
-      await Promise.all(comics.map(loadCover));
-    };
-
-    preloadCovers();
-  }, [comics]);
 
   const handleCreateNew = () => {
     const newComic: Comic = {
@@ -105,6 +28,7 @@ export const ComicGrid: React.FC = () => {
       coverImage: '',
       coverType: 'image',
       pages: [[]],
+      pageTemplates: [],
       createdAt: new Date(),
       lastModified: new Date()
     };
@@ -171,7 +95,7 @@ export const ComicGrid: React.FC = () => {
           </button>
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Create New Comic Card */}
         <div
@@ -205,51 +129,12 @@ export const ComicGrid: React.FC = () => {
           >
             {/* Comic Cover */}
             <div className="absolute inset-0">
-              {comic.coverImage ? (
-                loadedCovers[comic.id] ? (
-                  comic.coverType === 'video' || comic.coverType === 'gif' ? (
-                    <video
-                      key={comic.coverImage}
-                      src={comic.coverImage}
-                      className="w-full h-full object-cover"
-                      style={comic.coverPosition ? {
-                        objectPosition: `${comic.coverPosition.x}% ${comic.coverPosition.y}%`,
-                        transform: `scale(${comic.coverPosition.scale})`,
-                      } : undefined}
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      onError={(e) => {
-                        console.error('Video load error:', e);
-                        setLoadedCovers(prev => ({ ...prev, [comic.id]: false }));
-                      }}
-                    />
-                  ) : (
-                    <img
-                      key={comic.coverImage}
-                      src={comic.coverImage}
-                      alt={comic.title}
-                      className="w-full h-full object-cover"
-                      style={comic.coverPosition ? {
-                        objectPosition: `${comic.coverPosition.x}% ${comic.coverPosition.y}%`,
-                        transform: `scale(${comic.coverPosition.scale})`,
-                      } : undefined}
-                      onError={(e) => {
-                        console.error('Image load error:', e);
-                        setLoadedCovers(prev => ({ ...prev, [comic.id]: false }));
-                      }}
-                    />
-                  )
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                    <div className="text-sm text-gray-500">Loading cover...</div>
-                  </div>
-                )
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                  <div className="text-sm text-gray-500">No cover image</div>
-                </div>
+              {comic.coverImage && (
+                <MediaContent
+                  url={comic.coverImage}
+                  type={comic.coverType}
+                  className="w-full h-full object-cover"
+                />
               )}
             </div>
 

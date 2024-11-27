@@ -1,6 +1,8 @@
 import { env } from './env';
 
-export const mediaService = {
+class MediaService {
+  private objectUrls: Map<string, string> = new Map();
+
   async load(input: string | File): Promise<string> {
     if (typeof input === 'string') {
       return input;
@@ -10,16 +12,6 @@ export const mediaService = {
     formData.append('file', input);
     formData.append('upload_preset', env.VITE_CLOUDINARY_UPLOAD_PRESET);
     formData.append('api_key', env.VITE_CLOUDINARY_API_KEY);
-
-    console.log('Upload preset:', env.VITE_CLOUDINARY_UPLOAD_PRESET);
-    console.log('Cloud name:', env.VITE_CLOUDINARY_CLOUD_NAME);
-
-    // Debug logging
-    console.log('FormData contents:', {
-      file: input,
-      upload_preset: env.VITE_CLOUDINARY_UPLOAD_PRESET,
-      cloudName: env.VITE_CLOUDINARY_CLOUD_NAME
-    });
 
     try {
       const response = await fetch(
@@ -32,13 +24,6 @@ export const mediaService = {
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Upload error details:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorData,
-          requestURL: `https://api.cloudinary.com/v1_1/${env.VITE_CLOUDINARY_CLOUD_NAME}/auto/upload`,
-          preset: env.VITE_CLOUDINARY_UPLOAD_PRESET
-        });
         throw new Error(errorData.error?.message || 'Upload failed');
       }
 
@@ -48,9 +33,26 @@ export const mediaService = {
       console.error('Failed to upload media:', error);
       throw error;
     }
-  },
+  }
 
   upload(input: string | File): Promise<string> {
     return this.load(input);
   }
-};
+
+  revoke(url: string): void {
+    const objectUrl = this.objectUrls.get(url);
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      this.objectUrls.delete(url);
+    }
+  }
+
+  async clear(): Promise<void> {
+    this.objectUrls.forEach(objectUrl => {
+      URL.revokeObjectURL(objectUrl);
+    });
+    this.objectUrls.clear();
+  }
+}
+
+export const mediaService = new MediaService();

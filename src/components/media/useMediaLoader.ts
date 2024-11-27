@@ -29,6 +29,9 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
       const newUrl = await mediaService.load(url);
       
       if (mountedRef.current) {
+        if (previousUrlRef.current !== url) {
+          mediaService.revoke(previousUrlRef.current);
+        }
         previousUrlRef.current = url;
         setObjectUrl(newUrl);
         setIsLoading(false);
@@ -42,10 +45,6 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
       setError('Failed to load media');
       setIsLoading(false);
       onError?.();
-    } finally {
-      if (mountedRef.current) {
-        abortControllerRef.current = null;
-      }
     }
   }, [url, onLoad, onError]);
 
@@ -56,11 +55,9 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      if (objectUrl && previousUrlRef.current !== url) {
-        mediaService.revoke(previousUrlRef.current);
-      }
+      mediaService.revoke(previousUrlRef.current);
     };
-  }, [url, objectUrl]);
+  }, []);
 
   useEffect(() => {
     if (previousUrlRef.current !== url) {
@@ -70,13 +67,7 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
 
   const retry = useCallback(async () => {
     if (!url) return;
-    
-    try {
-      await mediaService.clear();
-      await loadMedia();
-    } catch (err) {
-      console.error('Retry failed:', err);
-    }
+    await loadMedia();
   }, [url, loadMedia]);
 
   return { isLoading, error, objectUrl, retry };

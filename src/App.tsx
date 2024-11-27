@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PenLine, Wallet, Home, BookOpen } from 'lucide-react';
+import { PenLine, Home, BookOpen, Wallet } from 'lucide-react';
 import { Reader } from './components/Reader';
 import { Creator } from './components/Creator';
 import { ComicGrid } from './components/ComicGrid';
@@ -19,6 +19,7 @@ function App() {
       coverImage: '',
       coverType: 'image' as const,
       pages: [[]],
+      pageTemplates: [],
       createdAt: new Date(),
       lastModified: new Date()
     };
@@ -29,6 +30,19 @@ function App() {
   const handleLogoClick = () => {
     setCurrentComic(null);
     setShowMyComics(false);
+  };
+
+  const renderContent = () => {
+    if (showMyComics) {
+      return <ComicGrid />;
+    }
+    if (isCreatorMode) {
+      return <Creator />;
+    }
+    if (currentComic && !isCreatorMode) {
+      return <Reader />;
+    }
+    return <Feed />;
   };
 
   return (
@@ -81,54 +95,48 @@ function App() {
                 <Wallet className="h-4 w-4 mr-2" />
                 Connect Wallet
               </button>
-              <button
-                onClick={handleCreateNew}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200"
-              >
-                <PenLine className="h-4 w-4 mr-2" />
-                Create Comic
-              </button>
+              {!isCreatorMode && (
+                <button
+                  onClick={handleCreateNew}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors flex items-center space-x-2"
+                >
+                  <PenLine className="w-5 h-5" />
+                  <span>Create Comic</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
       </nav>
 
       <main className="pt-16">
-        {isCreatorMode ? (
-          <Creator />
-        ) : currentComic ? (
-          <Reader />
-        ) : showMyComics ? (
-          <ComicGrid />
-        ) : (
-          <Feed />
-        )}
+        {renderContent()}
       </main>
 
       {!isCreatorMode && !currentComic && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex items-center space-x-4 bg-white/90 backdrop-blur-sm rounded-full shadow-lg px-6 py-3">
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex items-center space-x-5 bg-white/90 backdrop-blur-sm rounded-full shadow-lg px-8 py-4">
           <button
             onClick={() => setShowMyComics(false)}
-            className={`p-2 rounded-full transition-colors ${
+            className={`p-3 rounded-full transition-colors ${
               !showMyComics 
                 ? 'bg-blue-500 text-white' 
                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             }`}
             title="Feed"
           >
-            <Home className="w-5 h-5" />
+            <Home className="w-6 h-6" />
           </button>
           
           <button
             onClick={() => setShowMyComics(true)}
-            className={`p-2 rounded-full transition-colors ${
+            className={`p-3 rounded-full transition-colors ${
               showMyComics 
                 ? 'bg-blue-500 text-white' 
                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             }`}
             title="My Comics"
           >
-            <BookOpen className="w-5 h-5" />
+            <BookOpen className="w-6 h-6" />
           </button>
         </div>
       )}

@@ -1,12 +1,13 @@
 import React, { useCallback } from 'react';
 import {
   DndContext,
-  DragOverlay,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
+  DragEndEvent,
+  DragStartEvent
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -15,14 +16,15 @@ import {
 import { Panel, Template } from '../../types';
 import { DraggablePanel } from './DraggablePanel';
 import { useComicStore } from '../../store/useComicStore';
+import { nanoid } from 'nanoid';
 
 interface PanelGridProps {
   template: Template;
   panels: Panel[];
   onUpdatePanel: (panel: Panel) => void;
   onRemovePanel: (panelId: string) => void;
-  onReorderPanels: (startIndex: number, endIndex: number) => void;
-  isEditing?: boolean;
+  onReorderPanels: (start: number, end: number) => void;
+  onPanelSelect: (panel: Panel | null) => void;
 }
 
 export const PanelGrid: React.FC<PanelGridProps> = ({
@@ -31,10 +33,9 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
   onUpdatePanel,
   onRemovePanel,
   onReorderPanels,
-  isEditing = false,
+  onPanelSelect,
 }) => {
   const { currentPageIndex, addPanel } = useComicStore();
-  const [activeId, setActiveId] = React.useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -45,114 +46,129 @@ export const PanelGrid: React.FC<PanelGridProps> = ({
     useSensor(KeyboardSensor)
   );
 
-  const handleDrop = useCallback(async (e: React.DragEvent, areaIndex: number) => {
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const panel = panels.find(p => p.id === active.id);
+    if (panel) {
+      onPanelSelect(panel);
+    }
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = panels.findIndex((p) => p.id === active.id);
+      const newIndex = panels.findIndex((p) => p.id === over.id);
+      onReorderPanels(oldIndex, newIndex);
+    }
+    onPanelSelect(null);
+  };
+
+  const handleDrop = useCallback(async (e: React.DragEvent, area: any) => {
     e.preventDefault();
     e.stopPropagation();
     
+    const url = e.dataTransfer.getData('text/plain');
+    if (url) {
+      const panel: Panel = {
+        id: nanoid(),
+        type: 'image',
+        url,
+        size: area.size,
+        position: {
+          row: area.position.row,
+          col: area.position.col,
+          rowSpan: area.position.rowSpan,
+          colSpan: area.position.colSpan,
+        },
+        aspectRatio: 1
+      };
+      addPanel(panel, currentPageIndex);
+      return;
+    }
+
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
-    const file = files[0]; // Handle one file at a time
+    const file = files[0];
     const type = file.type.includes('video') ? 'video' : 
                 file.type.includes('gif') ? 'gif' : 'image';
 
-    const url = URL.createObjectURL(file);
-    const area = template.layout.areas[areaIndex];
-
-    // Create a temporary media element to get dimensions
-    const media = type === 'video' ? document.createElement('video') : document.createElement('img');
-    
-    media.onload = media.onloadedmetadata = () => {
-      const aspectRatio = media instanceof HTMLVideoElement 
-        ? media.videoWidth / media.videoHeight
-        : media.width / media.height;
-
-      const panel: Panel = {
-        id: Math.random().toString(36).substr(2, 9),
-        type,
-        url,
-        aspectRatio,
-        size: area.size,
-        position: area.position,
-        caption: '',
-      };
-
-      addPanel(panel, currentPageIndex);
+    const mediaUrl = URL.createObjectURL(file);
+    const panel: Panel = {
+      id: nanoid(),
+      type,
+      url: mediaUrl,
+      size: area.size,
+      position: {
+        row: area.position.row,
+        col: area.position.col,
+        rowSpan: area.position.rowSpan,
+        colSpan: area.position.colSpan,
+      },
+      aspectRatio: 1
     };
+    
+    addPanel(panel, currentPageIndex);
+  }, [addPanel, currentPageIndex]);
 
-    media.src = url;
-    if (type === 'video') {
-      (media as HTMLVideoElement).load();
-    }
-  }, [addPanel, currentPageIndex, template.layout.areas]);
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.currentTarget.classList.add('border-blue-500', 'bg-blue-50/10');
+  const gridStyle = {
+    display: 'grid',
+    gridTemplateRows: `repeat(${template.layout.rows}, minmax(0, 1fr))`,
+    gridTemplateColumns: `repeat(${template.layout.cols}, minmax(0, 1fr))`,
+    gap: '1rem',
+    width: '100%',
+    aspectRatio: '1',
+    padding: '1rem',
+    backgroundColor: '#ffffff',
+    borderRadius: '0.5rem',
   };
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50/10');
-  };
+  const panelsByPosition = new Map(panels.map(panel => [
+    `${panel.position.row}-${panel.position.col}`,
+    panel
+  ]));
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
-      onDragStart={(event) => setActiveId(event.active.id as string)}
-      onDragEnd={(event) => {
-        const { active, over } = event;
-        if (over && active.id !== over.id) {
-          const oldIndex = panels.findIndex((p) => p.id === active.id);
-          const newIndex = panels.findIndex((p) => p.id === over.id);
-          onReorderPanels(oldIndex, newIndex);
-        }
-        setActiveId(null);
-      }}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
     >
       <div 
-        className="grid gap-4 p-4 bg-transparent rounded-lg"
-        style={{
-          gridTemplateColumns: `repeat(${template.layout.cols}, minmax(0, 1fr))`,
-          gridAutoRows: 'minmax(200px, auto)',
-          minHeight: '600px',
-        }}
+        style={gridStyle}
+        onDragOver={(e) => e.preventDefault()}
       >
-        <SortableContext items={panels.map((p) => p.id)} strategy={rectSortingStrategy}>
-          {template.layout.areas.map((area, index) => {
-            const panel = panels[index];
-            const gridItemStyle = {
-              gridRow: `span ${area.position.rowSpan || 1}`,
-              gridColumn: `span ${area.position.colSpan || 1}`,
-            };
-
-            if (!panel) {
-              return (
-                <div
-                  key={`empty-${index}`}
-                  style={gridItemStyle}
-                  className="border-2 border-dashed border-gray-300 rounded-lg bg-transparent flex items-center justify-center transition-all duration-200"
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                >
-                  <p className="text-gray-400 text-sm">Drop content here</p>
-                </div>
-              );
-            }
-
+        <SortableContext items={panels.map(p => p.id)} strategy={rectSortingStrategy}>
+          {template.layout.areas.map((area) => {
+            const key = `${area.position.row}-${area.position.col}`;
+            const panel = panelsByPosition.get(key);
+            
             return (
-              <div 
-                key={panel.id}
-                style={gridItemStyle}
-                className="relative overflow-hidden rounded-lg"
+              <div
+                key={key}
+                style={{
+                  gridRow: `${area.position.row + 1} / span ${area.position.rowSpan || 1}`,
+                  gridColumn: `${area.position.col + 1} / span ${area.position.colSpan || 1}`,
+                }}
+                className="relative bg-white border border-gray-200 rounded-lg overflow-hidden"
+                onDrop={(e) => handleDrop(e, area)}
+                onDragOver={(e) => e.preventDefault()}
               >
-                <DraggablePanel
-                  panel={panel}
-                  onUpdate={onUpdatePanel}
-                  onRemove={onRemovePanel}
-                />
+                {panel ? (
+                  <DraggablePanel
+                    panel={panel}
+                    onUpdate={onUpdatePanel}
+                    onRemove={onRemovePanel}
+                    onSelect={onPanelSelect}
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    Drop media here
+                  </div>
+                )}
               </div>
             );
           })}

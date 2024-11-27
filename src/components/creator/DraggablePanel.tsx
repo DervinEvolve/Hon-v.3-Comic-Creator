@@ -9,12 +9,14 @@ interface DraggablePanelProps {
   panel: Panel;
   onUpdate: (panel: Panel) => void;
   onRemove: (panelId: string) => void;
+  onSelect: (panel: Panel | null) => void;
 }
 
 export const DraggablePanel: React.FC<DraggablePanelProps> = ({
   panel,
   onUpdate,
   onRemove,
+  onSelect,
 }) => {
   const {
     attributes,
@@ -37,6 +39,7 @@ export const DraggablePanel: React.FC<DraggablePanelProps> = ({
       ref={setNodeRef}
       style={style}
       className="group relative h-full rounded-lg overflow-hidden"
+      onClick={() => onSelect(panel)}
     >
       <div
         {...attributes}

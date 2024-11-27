@@ -1,6 +1,6 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, Layout, Save, Send, Wand2 } from 'lucide-react';
+import { Upload, Layout, Save, Send, Wand2, BookOpen } from 'lucide-react';
 import { useComicStore } from '../store/useComicStore';
 import { TemplateSelector } from './creator/TemplateSelector';
 import { PanelGrid } from './creator/PanelGrid';
@@ -11,6 +11,7 @@ import { Template, Panel } from '../types';
 import { nanoid } from 'nanoid';
 import { AIControls } from './creator/AIControls';
 import { fluxService } from '../services/fluxService';
+import { mediaService } from '../utils/mediaService';
 
 export const Creator: React.FC = () => {
   const { 
@@ -26,43 +27,101 @@ export const Creator: React.FC = () => {
   } = useComicStore();
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedPanelForEdit, setSelectedPanelForEdit] = useState<Panel | null>(null);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    acceptedFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const media = file.type.includes('video') || file.type.includes('gif')
-          ? document.createElement('video')
-          : document.createElement('img');
-
-        media.onload = media.onloadedmetadata = () => {
-          const aspectRatio = media instanceof HTMLVideoElement 
-            ? media.videoWidth / media.videoHeight
-            : media.width / media.height;
-
-          const panel: Panel = {
-            id: nanoid(),
-            type: file.type.includes('video') ? 'video' as const : 
-                  file.type.includes('gif') ? 'gif' as const : 'image' as const,
-            url: URL.createObjectURL(file),
-            caption: '',
-            size: 'medium' as const,
-            aspectRatio,
-            position: { row: 0, col: 0 }
-          };
-          
-          addPanel(panel, currentPageIndex);
-        };
-
-        if (media instanceof HTMLVideoElement) {
-          media.src = URL.createObjectURL(file);
-        } else {
-          media.src = URL.createObjectURL(file);
-        }
+  const handleTemplateSelect = (template: Template) => {
+    setSelectedTemplate(template);
+    if (currentComic) {
+      const newPageTemplates = [...(currentComic.pageTemplates || [])];
+      newPageTemplates[currentPageIndex] = template;
+      
+      const updatedComic = {
+        ...currentComic,
+        pageTemplates: newPageTemplates,
+        lastModified: new Date()
       };
-      reader.readAsArrayBuffer(file);
-    });
-  }, [addPanel, currentPageIndex]);
+      
+      setCurrentComic(updatedComic);
+    }
+  };
+
+  const handleGenerateImage = async (prompt: string): Promise<string> => {
+    try {
+      const imageUrl = await fluxService.generateImage(prompt);
+      if (!imageUrl) {
+        throw new Error('No image URL returned from generation');
+      }
+      const panel: Panel = {
+        id: nanoid(),
+        type: 'image',
+        url: imageUrl,
+        size: 'medium',
+        aspectRatio: 1,
+        position: { row: 0, col: 0 }
+      };
+      addPanel(panel, currentPageIndex);
+      return imageUrl;
+    } catch (error) {
+      console.error('Failed to generate image:', error);
+      throw error;
+    }
+  };
+
+  const handleEditImage = async (prompt: string, imageUrl: string): Promise<void> => {
+    try {
+      const editedImageUrl = await fluxService.editImage(prompt, imageUrl);
+      if (selectedPanelForEdit) {
+        updatePanel({
+          ...selectedPanelForEdit,
+          url: editedImageUrl
+        }, currentPageIndex);
+      }
+    } catch (error) {
+      console.error('Failed to edit image:', error);
+      throw error;
+    }
+  };
+
+  const handleAddPanel = (panel: Panel) => {
+    addPanel(panel, currentPageIndex);
+  };
+
+  const onDrop = async (acceptedFiles: File[]) => {
+    if (!selectedTemplate) return;
+
+    const currentPanels = currentComic?.pages[currentPageIndex] || [];
+    const emptyAreas = selectedTemplate.layout.areas.filter(area => 
+      !currentPanels.some(panel => 
+        panel.position.row === area.position.row && 
+        panel.position.col === area.position.col
+      )
+    );
+
+    for (let i = 0; i < Math.min(acceptedFiles.length, emptyAreas.length); i++) {
+      const file = acceptedFiles[i];
+      const area = emptyAreas[i];
+      
+      try {
+        const url = await mediaService.upload(file);
+        const panel: Panel = {
+          id: nanoid(),
+          type: file.type.startsWith('video/') ? 'video' : 'image',
+          url,
+          size: area.size,
+          aspectRatio: 1,
+          position: {
+            row: area.position.row,
+            col: area.position.col,
+            rowSpan: area.position.rowSpan,
+            colSpan: area.position.colSpan,
+          }
+        };
+        addPanel(panel, currentPageIndex);
+      } catch (error) {
+        console.error('Failed to upload file:', error);
+      }
+    }
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -74,115 +133,67 @@ export const Creator: React.FC = () => {
     multiple: true,
   });
 
+  const handleSave = async () => {
+    if (!currentComic) return;
+    setIsSaving(true);
+    try {
+      await saveDraft(currentComic);
+    } catch (error) {
+      console.error('Failed to save draft:', error);
+    }
+    setIsSaving(false);
+  };
+
   const handlePublish = async () => {
-    setIsSaving(true);
+    if (!currentComic) return;
     try {
-      if (currentComic && currentComic.pages[0]?.length > 0) {
-        await publishComic(currentComic);
-        setCurrentComic(null);
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSaveDraft = async () => {
-    setIsSaving(true);
-    try {
-      if (currentComic) {
-        await saveDraft(currentComic);
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleViewMode = () => {
-    setCurrentComic(null);
-  };
-
-  const currentPagePanels = currentComic?.pages[currentPageIndex] || [];
-
-  useEffect(() => {
-    return () => {
-      // Cleanup blob URLs when component unmounts
-      if (currentComic) {
-        currentComic.pages.forEach(page => {
-          page.forEach(panel => {
-            if (panel.url.startsWith('blob:')) {
-              URL.revokeObjectURL(panel.url);
-            }
-          });
-        });
-      }
-    };
-  }, [currentComic]);
-
-  const handleGenerateImage = async (prompt: string) => {
-    try {
-      const imageUrl = await fluxService.generateImage(prompt);
-      const panel: Panel = {
-        id: nanoid(),
-        type: 'image',
-        url: imageUrl,
-        caption: prompt,
-        size: 'medium',
-        aspectRatio: 1, // Will be updated when image loads
-        position: { row: 0, col: 0 }
-      };
-      addPanel(panel, currentPageIndex);
+      await publishComic(currentComic);
     } catch (error) {
-      console.error('Failed to generate image:', error);
-      alert('Failed to generate image. Please try again.');
+      console.error('Failed to publish comic:', error);
     }
   };
 
-  const handleEditImage = async (prompt: string, imageUrl: string) => {
-    try {
-      const editedImageUrl = await fluxService.editImage(prompt, imageUrl);
-      // Update the current panel with the edited image
-      const panelToUpdate = currentPagePanels.find(p => p.url === imageUrl);
-      if (panelToUpdate) {
-        updatePanel({
-          ...panelToUpdate,
-          url: editedImageUrl
-        }, currentPageIndex);
-      }
-    } catch (error) {
-      console.error('Failed to edit image:', error);
-      alert('Failed to edit image. Please try again.');
-    }
-  };
+  if (!currentComic) return null;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex justify-between items-center">
+        {/* Header */}
+        <header className="flex items-center justify-between">
           <TitleEditor />
-          <div className="flex gap-4">
+          <div className="flex items-center space-x-4">
             <button
-              onClick={handleViewMode}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              onClick={() => setCurrentComic(null)}
+              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 flex items-center space-x-2"
             >
-              View Comics
+              <BookOpen className="w-4 h-4" />
+              <span>View Comics</span>
             </button>
             <button
-              onClick={handleSaveDraft}
-              disabled={!currentComic || isSaving}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
-              <Save className="w-4 h-4 mr-2" />
-              Save Draft
+              <Save className="w-4 h-4" />
+              <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
             </button>
             <button
               onClick={handlePublish}
-              disabled={!currentComic?.pages.some(page => page.length > 0) || isSaving}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center space-x-2"
             >
-              <Send className="w-4 h-4 mr-2" />
-              Publish Comic
+              <Send className="w-4 h-4" />
+              <span>Publish</span>
             </button>
           </div>
+        </header>
+
+        {/* Template Selection */}
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-800">
+            <Layout className="w-5 h-5 mr-2" />
+            Choose a Layout Template
+          </h2>
+          <TemplateSelector onSelect={handleTemplateSelect} />
         </div>
 
         {/* Cover Uploader */}
@@ -191,62 +202,56 @@ export const Creator: React.FC = () => {
           <CoverUploader />
         </div>
 
-        {/* Template Selector and Content Upload */}
-        <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-800">
-              <Layout className="w-5 h-5 mr-2" />
-              Choose a Layout Template
-            </h2>
-            <TemplateSelector onSelect={setSelectedTemplate} />
-          </div>
-
-          {/* Add AI Controls */}
-          <div className="border-t pt-6">
-            <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-800">
-              <Wand2 className="w-5 h-5 mr-2" />
-              AI Image Generation
-            </h2>
-            <AIControls 
-              onGenerate={handleGenerateImage}
-              onEdit={handleEditImage}
-              selectedImageUrl={currentPagePanels.length ? currentPagePanels[0].url : undefined}
-            />
-          </div>
-
-          <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${
-              isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
-            }`}
-          >
-            <input {...getInputProps()} />
-            <Upload className="mx-auto h-12 w-12 text-gray-400" />
-            <p className="mt-2 text-sm text-gray-800">
-              Drag 'n' drop images, videos, or GIFs here, or click to select files
-            </p>
-            <p className="mt-1 text-xs text-gray-600">
-              Supported formats: JPG, PNG, GIF, MP4, WebM
-            </p>
-          </div>
-        </div>
-
-        {/* Panel Grid */}
+        {/* Panel Grid and Content Area */}
         {selectedTemplate && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold mb-4">Page {currentPageIndex + 1} Layout</h2>
-            <PanelGrid
-              template={selectedTemplate}
-              panels={currentPagePanels}
-              onUpdatePanel={(panel) => updatePanel(panel, currentPageIndex)}
-              onRemovePanel={(panelId) => removePanel(panelId, currentPageIndex)}
-              onReorderPanels={(start, end) => reorderPanels(start, end, currentPageIndex)}
-            />
+          <div className="bg-white rounded-lg shadow-sm p-6 space-y-6">
+            {/* AI Controls */}
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold mb-4 flex items-center text-gray-800">
+                <Wand2 className="w-5 h-5 mr-2" />
+                AI Image Generation
+              </h2>
+              <AIControls 
+                onGenerate={handleGenerateImage}
+                onEdit={handleEditImage}
+                selectedImageUrl={selectedPanelForEdit?.url}
+                onClearSelection={() => setSelectedPanelForEdit(null)}
+                onAddPanel={handleAddPanel}
+              />
+            </div>
+
+            {/* Drop Zone */}
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors mb-6 ${
+                isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <input {...getInputProps()} />
+              <div className="flex flex-col items-center space-y-2">
+                <Upload className="w-8 h-8 text-gray-400" />
+                <p className="text-gray-600">Drag & drop files here, or click to select files</p>
+                <p className="text-sm text-gray-500">Supports images, videos, and GIFs</p>
+              </div>
+            </div>
+
+            {/* Panel Grid */}
+            <div>
+              <PanelGrid
+                template={selectedTemplate}
+                panels={currentComic?.pages[currentPageIndex] || []}
+                onUpdatePanel={(panel) => updatePanel(panel, currentPageIndex)}
+                onRemovePanel={(panelId) => removePanel(panelId, currentPageIndex)}
+                onReorderPanels={(start, end) => reorderPanels(start, end, currentPageIndex)}
+                onPanelSelect={setSelectedPanelForEdit}
+              />
+            </div>
           </div>
         )}
-      </div>
 
-      <PageManager />
+        {/* Page Manager */}
+        <PageManager />
+      </div>
     </div>
   );
 };

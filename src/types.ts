@@ -20,23 +20,28 @@ export interface CoverPosition {
 
 export interface Panel {
   id: string;
-  url: string;
   type: 'image' | 'video' | 'gif';
-  size?: 'small' | 'medium' | 'large';
+  url: string;
+  size: 'small' | 'medium' | 'large';
   aspectRatio: number;
-  caption?: string;
   position: {
     row: number;
     col: number;
+    rowSpan?: number;
+    colSpan?: number;
   };
+  caption?: string;
   captionPosition?: {
     x: number;
     y: number;
+    vertical: 'top' | 'bottom';
+    align: 'left' | 'center' | 'right';
   };
   captionStyle?: {
-    backgroundColor?: string;
-    fontFamily?: string;
-    fontSize?: string;
+    fontSize: number;
+    fontFamily: string;
+    backgroundColor: 'black' | 'white';
+    opacity: number;
   };
 }
 
@@ -48,10 +53,15 @@ export interface Template {
   layout: {
     rows: number;
     cols: number;
-    areas: {
-      size: Panel['size'];
-      position: Panel['position'];
-    }[];
+    areas: Array<{
+      size: 'small' | 'medium' | 'large';
+      position: {
+        row: number;
+        col: number;
+        rowSpan?: number;
+        colSpan?: number;
+      };
+    }>;
   };
 }
 
@@ -67,6 +77,7 @@ export interface Comic {
     scale: number;
   };
   pages: Panel[][];
+  pageTemplates: (Template | null)[];
   createdAt: Date;
   lastModified: Date;
 }

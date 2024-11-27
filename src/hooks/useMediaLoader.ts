@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface UseMediaLoaderProps {
   url: string;
@@ -45,7 +45,7 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
     setObjectUrl('');
 
     try {
-      // For Cloudinary URLs, use them directly
+      // For Cloudinary URLs, use them directly without fetching
       if (url.includes('cloudinary.com')) {
         setObjectUrl(url);
         setIsLoading(false);
@@ -61,15 +61,21 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
         return;
       }
 
+      // For other URLs, fetch them
       abortControllerRef.current = new AbortController();
 
       const response = await fetch(url, {
         signal: abortControllerRef.current.signal,
         cache: 'force-cache',
         credentials: 'omit',
+        headers: {
+          'Accept': 'image/*, video/*'
+        }
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
       const blob = await response.blob();
       
@@ -117,4 +123,4 @@ export function useMediaLoader({ url, onLoad, onError }: UseMediaLoaderProps) {
     objectUrl: objectUrl || url, // Fallback to original URL if no object URL
     retry,
   };
-}
+} 

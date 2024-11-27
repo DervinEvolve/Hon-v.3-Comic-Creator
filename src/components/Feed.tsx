@@ -15,6 +15,13 @@ export const Feed: React.FC = () => {
         if (!comic.coverImage) return true;
 
         try {
+          console.log('Loading comic content:', {
+            comicId: comic.id,
+            coverUrl: comic.coverImage,
+            coverType: comic.coverType,
+            pagesCount: comic.pages.length
+          });
+
           return new Promise((resolve) => {
             const element = comic.coverType === 'video' || comic.coverType === 'gif'
               ? document.createElement('video')
@@ -22,18 +29,24 @@ export const Feed: React.FC = () => {
 
             const timeoutId = setTimeout(() => {
               element.src = '';
+              console.error('Content load timeout:', comic.id);
               setLoadedCovers(prev => ({ ...prev, [comic.id]: false }));
               resolve(false);
-            }, 10000);
+            }, 15000);
 
             const handleLoad = () => {
               clearTimeout(timeoutId);
+              console.log('Content loaded successfully:', comic.id);
               setLoadedCovers(prev => ({ ...prev, [comic.id]: true }));
               resolve(true);
             };
 
             const handleError = () => {
               clearTimeout(timeoutId);
+              console.error('Content load error:', {
+                comicId: comic.id,
+                url: comic.coverImage
+              });
               setLoadedCovers(prev => ({ ...prev, [comic.id]: false }));
               resolve(false);
             };
@@ -52,7 +65,7 @@ export const Feed: React.FC = () => {
             }
           });
         } catch (error) {
-          console.error('Failed to load cover:', error);
+          console.error('Failed to load content:', error);
           return false;
         }
       };
@@ -64,8 +77,7 @@ export const Feed: React.FC = () => {
   }, [publishedComics]);
 
   const handleSupportClick = (e: React.MouseEvent, comic: Comic) => {
-    e.stopPropagation(); // Prevent opening the comic when clicking support button
-    // TODO: Add Solana payment modal logic here
+    e.stopPropagation();
     setSupportedComics(prev => {
       const newSet = new Set(prev);
       if (newSet.has(comic.id)) {
@@ -86,7 +98,7 @@ export const Feed: React.FC = () => {
           <div 
             key={comic.id} 
             className="relative h-80 bg-gray-800 rounded-lg overflow-hidden group cursor-pointer"
-            onClick={() => setCurrentComic(comic)} // Add click handler to open comic
+            onClick={() => setCurrentComic(comic)}
           >
             <div className="absolute inset-0">
               {comic.coverImage ? (
