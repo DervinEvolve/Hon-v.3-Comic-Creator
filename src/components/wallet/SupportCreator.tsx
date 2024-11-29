@@ -4,6 +4,7 @@ import { PublicKey } from '@solana/web3.js';
 import { Gift } from 'lucide-react';
 import { solanaService } from '../../services/solanaService';
 import { useSolana } from '../../contexts/SolanaContext';
+import { WalletButton } from './WalletButton';
 
 interface SupportCreatorProps {
   creatorWallet: string;
@@ -44,7 +45,7 @@ export const SupportCreator: React.FC<SupportCreatorProps> = ({
       onSuccess?.();
     } catch (err) {
       console.error('Support transaction failed:', err);
-      setError('Transaction failed. Please try again.');
+      setError(err instanceof Error ? err.message : 'Transaction failed. Please try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -53,37 +54,45 @@ export const SupportCreator: React.FC<SupportCreatorProps> = ({
   if (!creatorWallet) return null;
 
   return (
-    <div className="flex flex-col space-y-4">
-      <div className="flex items-center space-x-2">
-        <input
-          type="number"
-          min="0.1"
-          step="0.1"
-          value={amount}
-          onChange={(e) => setAmount(Number(e.target.value))}
-          className="px-3 py-2 border rounded-md w-24"
-          disabled={isProcessing}
-        />
-        <span className="text-sm text-gray-500">SOL</span>
-      </div>
+    <div className="p-4 bg-gray-800 rounded-lg">
+      {!isConnected ? (
+        <div className="text-center">
+          <p className="text-gray-300 mb-4">Connect your wallet to support this creator</p>
+          <WalletButton />
+        </div>
+      ) : (
+        <div className="flex flex-col space-y-4">
+          <div className="flex items-center space-x-2">
+            <input
+              type="number"
+              min="0.1"
+              step="0.1"
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-md w-24 text-white"
+              disabled={isProcessing}
+            />
+            <span className="text-sm text-gray-400">SOL</span>
+          </div>
 
-      <button
-        onClick={handleSupport}
-        disabled={!isConnected || isProcessing}
-        className={`flex items-center justify-center px-4 py-2 rounded-md space-x-2
-          ${isConnected 
-            ? 'bg-purple-600 hover:bg-purple-700 text-white' 
-            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-          }`}
-      >
-        <Gift className="w-4 h-4" />
-        <span>
-          {isProcessing ? 'Processing...' : 'Support Creator'}
-        </span>
-      </button>
+          <button
+            onClick={handleSupport}
+            disabled={isProcessing}
+            className={`flex items-center justify-center px-4 py-2 rounded-md space-x-2
+              ${isProcessing 
+                ? 'bg-gray-600 cursor-not-allowed' 
+                : 'bg-purple-600 hover:bg-purple-700'} text-white`}
+          >
+            <Gift className="w-4 h-4" />
+            <span>
+              {isProcessing ? 'Processing...' : 'Support Creator'}
+            </span>
+          </button>
 
-      {error && (
-        <p className="text-sm text-red-500">{error}</p>
+          {error && (
+            <p className="text-sm text-red-500">{error}</p>
+          )}
+        </div>
       )}
     </div>
   );

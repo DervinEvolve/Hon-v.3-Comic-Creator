@@ -24,7 +24,7 @@
     "@solana/wallet-adapter-react": "^0.15.35",
     "@solana/wallet-adapter-react-ui": "^0.9.35",
     "@solana/wallet-adapter-wallets": "^0.19.32",
-    "@solana/web3.js": "^1.77.3",
+    "@solana/web3.js": "^1.95.5",
     "cloudinary-react": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -38,6 +38,7 @@
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.2.3",
     "react-intersection-observer": "^9.8.1",
+    "recharts": "^2.13.3",
     "ts-node": "^10.9.2",
     "zustand": "^4.5.2"
   },
@@ -68,5 +69,13 @@
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-arm64": "4.6.1"
-  }
+  },
+  "description": "<div align=\"center\">   <img src=\"docs/images/creator-mode.png\" alt=\"Comic Creator Interface\" width=\"800\"/>   <br/>   <em>Comic Creator Interface</em>   <br/><br/>   <img src=\"docs/images/reader-mode.png\" alt=\"Comic Reader Interface\" width=\"800\"/>   <br/>   <em>Comic Reader Interface</em> </div>",
+  "main": "eslint.config.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }

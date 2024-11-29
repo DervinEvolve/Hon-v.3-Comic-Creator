@@ -5,7 +5,11 @@ import { nanoid } from 'nanoid';
 import { Comic } from '../types';
 import MediaContent from './MediaContent';
 
-export const ComicGrid: React.FC = () => {
+interface ComicGridProps {
+  onCreateNew: () => void;
+}
+
+export const ComicGrid: React.FC<ComicGridProps> = ({ onCreateNew }) => {
   const { 
     publishedComics, 
     draftComics,
@@ -19,22 +23,6 @@ export const ComicGrid: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'published' | 'drafts'>('published');
 
   const comics = activeTab === 'published' ? publishedComics : draftComics;
-
-  const handleCreateNew = () => {
-    const newComic: Comic = {
-      id: nanoid(),
-      title: 'Untitled Comic',
-      creator: 'Anonymous',
-      coverImage: '',
-      coverType: 'image',
-      pages: [[]],
-      pageTemplates: [],
-      createdAt: new Date(),
-      lastModified: new Date()
-    };
-    setCurrentComic(newComic);
-    toggleCreatorMode();
-  };
 
   const handleEdit = (e: React.MouseEvent, comic: Comic) => {
     e.preventDefault();
@@ -99,14 +87,14 @@ export const ComicGrid: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Create New Comic Card */}
         <div
-          onClick={handleCreateNew}
+          onClick={onCreateNew}
           className="relative h-80 bg-gray-800 rounded-lg border-2 border-dashed border-gray-700 hover:border-blue-500 transition-colors group cursor-pointer"
           role="button"
           tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              handleCreateNew();
+              onCreateNew();
             }
           }}
         >

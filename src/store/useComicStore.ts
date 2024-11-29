@@ -238,125 +238,95 @@ export const useComicStore = create<ComicStore>()(
       addPage: () =>
         set((state) => {
           if (!state.currentComic) return state;
-          const newPages = [...state.currentComic.pages, []];
           return {
-            currentComic: { 
-              ...state.currentComic, 
-              pages: newPages,
+            currentComic: {
+              ...state.currentComic,
+              pages: [...state.currentComic.pages, []],
+              pageTemplates: [...state.currentComic.pageTemplates, null],
               lastModified: new Date()
-            },
-            currentPageIndex: newPages.length - 1,
+            }
           };
         }),
 
       removePage: (pageIndex) =>
         set((state) => {
-          if (!state.currentComic || state.currentComic.pages.length <= 1) return state;
-          const newPages = state.currentComic.pages.filter((_, i) => i !== pageIndex);
+          if (!state.currentComic) return state;
+          const newPages = [...state.currentComic.pages];
+          const newTemplates = [...state.currentComic.pageTemplates];
+          newPages.splice(pageIndex, 1);
+          newTemplates.splice(pageIndex, 1);
           return {
-            currentComic: { 
-              ...state.currentComic, 
+            currentComic: {
+              ...state.currentComic,
               pages: newPages,
+              pageTemplates: newTemplates,
               lastModified: new Date()
             },
-            currentPageIndex: Math.min(state.currentPageIndex, newPages.length - 1),
+            currentPageIndex: Math.max(0, state.currentPageIndex - 1)
           };
         }),
 
-      setCurrentPageIndex: (index) => 
+      setCurrentPageIndex: (index) =>
         set({ currentPageIndex: index }),
 
-      saveDraft: async (comic: Comic) => {
-        try {
-          const persistedComic = await persistComicMedia(comic);
-          const state = get();
-          const existingIndex = state.draftComics.findIndex(d => d.id === persistedComic.id);
-          const updatedDrafts = [...state.draftComics];
-
-          if (existingIndex >= 0) {
-            updatedDrafts[existingIndex] = persistedComic;
-          } else {
-            updatedDrafts.push(persistedComic);
-          }
-
-          set({
-            draftComics: updatedDrafts,
-            currentComic: persistedComic,
-          });
-
-          return persistedComic;
-        } catch (error) {
-          console.error('Failed to save draft:', error);
-          return comic;
-        }
-      },
-
-      publishComic: async (comic: Comic) => {
-        try {
-          const persistedComic = await persistComicMedia({
-            ...comic,
-            id: comic.id || nanoid(),
-            lastModified: new Date()
-          });
-          
-          set((state) => ({
-            publishedComics: [
-              persistedComic,
-              ...state.publishedComics.filter(c => c.id !== persistedComic.id)
-            ],
-            draftComics: state.draftComics.filter(d => d.id !== persistedComic.id),
-            currentComic: null,
-            isCreatorMode: false,
-            currentPageIndex: 0,
-          }));
-
-          return persistedComic;
-        } catch (error) {
-          console.error('Failed to publish comic:', error);
-          throw error;
-        }
+      publishComic: async (comic) => {
+        const persistedComic = await persistComicMedia(comic);
+        set((state) => ({
+          publishedComics: [...state.publishedComics, persistedComic],
+          draftComics: state.draftComics.filter(d => d.id !== comic.id),
+          currentComic: null,
+          isCreatorMode: false
+        }));
+        return persistedComic;
       },
 
       unpublishComic: (comicId) =>
         set((state) => ({
-          publishedComics: state.publishedComics.filter(c => c.id !== comicId),
+          publishedComics: state.publishedComics.filter(c => c.id !== comicId)
         })),
+
+      saveDraft: async (comic) => {
+        const persistedComic = await persistComicMedia(comic);
+        set((state) => ({
+          draftComics: [
+            ...state.draftComics.filter(d => d.id !== comic.id),
+            persistedComic
+          ]
+        }));
+        return persistedComic;
+      },
 
       deleteDraft: (comicId) =>
         set((state) => ({
-          draftComics: state.draftComics.filter(c => c.id !== comicId),
+          draftComics: state.draftComics.filter(d => d.id !== comicId)
         })),
 
       loadDraft: (comicId) =>
         set((state) => {
-          const draft = state.draftComics.find(c => c.id === comicId);
+          const draft = state.draftComics.find(d => d.id === comicId);
           if (!draft) return state;
           return {
-            currentComic: {
-              ...draft,
-              pages: draft.pages || [[]],
-              pageTemplates: draft.pageTemplates || [],
-            },
+            currentComic: draft,
             currentPageIndex: 0,
-            isCreatorMode: true,
+            isCreatorMode: true
           };
         }),
 
-      setMediaLoaded: (panelId: string, loaded: boolean) =>
+      setMediaLoaded: (panelId, loaded) =>
         set((state) => ({
           mediaLoadingStates: {
             ...state.mediaLoadingStates,
-            [panelId]: loaded,
-          },
-        })),
+            [panelId]: loaded
+          }
+        }))
     }),
     {
-      name: 'comic-storage',
+      name: 'comic-store',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         publishedComics: state.publishedComics,
-        draftComics: state.draftComics,
-      }),
+        draftComics: state.draftComics
+      })
     }
   )
 );

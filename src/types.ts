@@ -69,6 +69,7 @@ export interface Comic {
   id: string;
   title: string;
   creator: string;
+  creatorWallet: string;
   coverImage: string;
   coverType: 'image' | 'video' | 'gif';
   coverPosition?: {

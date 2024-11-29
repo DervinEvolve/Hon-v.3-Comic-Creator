@@ -1,30 +1,51 @@
-import { PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { Connection, PublicKey, Transaction, SystemProgram, SendTransactionError, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { WalletContextState } from '@solana/wallet-adapter-react';
 
-export const solanaService = {
+class SolanaService {
   async sendSol(
-    connection: any,
-    fromPubkey: PublicKey,
-    toPubkey: PublicKey,
+    connection: Connection,
+    senderPublicKey: PublicKey,
+    recipientPublicKey: PublicKey,
     amount: number,
-    sendTransaction: any
-  ) {
+    sendTransaction: WalletContextState['sendTransaction']
+  ): Promise<string> {
     try {
       const transaction = new Transaction().add(
         SystemProgram.transfer({
-          fromPubkey,
-          toPubkey,
-          lamports: amount * LAMPORTS_PER_SOL
+          fromPubkey: senderPublicKey,
+          toPubkey: recipientPublicKey,
+          lamports: amount * LAMPORTS_PER_SOL,
         })
       );
 
-      const signature = await sendTransaction(transaction, connection);
-      await connection.confirmTransaction(signature, 'confirmed');
-      
+      const {
+        context: { slot: minContextSlot },
+        value: { blockhash, lastValidBlockHeight }
+      } = await connection.getLatestBlockhashAndContext();
+
+      const signature = await sendTransaction(transaction, connection, {
+        minContextSlot,
+      });
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction({
+        blockhash,
+        lastValidBlockHeight,
+        signature,
+      });
+
+      if (confirmation.value.err) {
+        throw new Error('Transaction failed');
+      }
+
       return signature;
     } catch (error) {
-      console.error('Error sending SOL:', error);
+      if (error instanceof SendTransactionError) {
+        throw new Error('Transaction rejected by user');
+      }
       throw error;
     }
   }
-}; 
+}
+
+export const solanaService = new SolanaService(); 
