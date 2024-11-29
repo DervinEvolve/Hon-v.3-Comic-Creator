@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { X as XIcon, Instagram, Globe } from 'lucide-react';
+import { X as XIcon, Instagram, Globe, Eye, EyeOff } from 'lucide-react';
 import { useUserProfile } from '../../hooks/useUserProfile';
 import { SocialLink } from '../../types/profile';
 import { WalletBalance } from './WalletBalance';
@@ -9,6 +9,7 @@ import { TransactionAnalytics } from './TransactionAnalytics';
 export const ProfilePage: React.FC = () => {
   const { publicKey } = useWallet();
   const { profile, updateProfile } = useUserProfile();
+  const [showWallet, setShowWallet] = useState(true);
   
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     updateProfile({ username: e.target.value });
@@ -43,15 +44,39 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const formatWalletAddress = (address: string) => {
+    if (!showWallet) return '••••••••••••';
+    const start = address.slice(0, 4);
+    const end = address.slice(-4);
+    return `${start}...${end}`;
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="bg-gray-800 rounded-lg shadow-lg p-6">
         {/* Profile Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-white mb-2">User Profile</h1>
-          <p className="text-gray-400">
-            {publicKey ? publicKey.toString() : 'Connect your wallet to view profile'}
-          </p>
+          <div className="flex items-center space-x-2 text-gray-400">
+            <p>
+              {publicKey 
+                ? formatWalletAddress(publicKey.toString()) 
+                : 'Connect your wallet to view profile'}
+            </p>
+            {publicKey && (
+              <button
+                onClick={() => setShowWallet(!showWallet)}
+                className="p-1 hover:text-gray-300 transition-colors"
+                aria-label={showWallet ? 'Hide wallet address' : 'Show wallet address'}
+              >
+                {showWallet ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Username Section */}
